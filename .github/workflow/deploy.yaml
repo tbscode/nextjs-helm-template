@@ -1,0 +1,62 @@
+name: Deploy NextJs App
+    
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy NextJS App
+    steps:
+      - uses: actions/checkout@master
+        with:
+          token: ${{ secrets.BOT_PAT }}
+          submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Setup Kubeconfig
+        id: setup_kubeconfig
+        run: |
+          touch .env; rm .env
+          echo "${{ secrets.KUBE_CONFIG_BASE64 }}" | base64 -d > kubeconfig.yaml
+      - name: Setup Environment
+        id: setup_env
+        run: |
+          touch .env; rm .env; touch .env
+          RANDOM_STRING="$( openssl rand -hex 3 )"
+          FRONTEND_IMAGE="${{ secrets.CONTAINER_REGISTRY }}/${{ secrets.GITTEA_USER }}/nextjs-app:build-$RANDOM_STRING"
+          echo "FRONTEND_IMAGE=\"$FRONTEND_IMAGE\"" >> .env
+          echo "frontend_image=$FRONTEND_IMAGE" >> $GITHUB_OUTPUT
+      - name: Build And Push Image
+        run: |
+          echo ${{ secrets.GITTEA_PASSWORD }} | docker login ${{ secrets.CONTAINER_REGISTRY }} -u ${{ secrets.GITTEA_USER }} --password-stdin
+          DOCKER_BUILDKIT=1 docker-compose -f docker-compose.pro.yaml build
+          DOCKER_BUILDKIT=1 docker-compose -f docker-compose.pro.yaml push
+      - uses: azure/setup-helm@v3
+        with:
+           version: 'latest'
+           token: ${{ secrets.BOT_PAT }}
+        id: install-helm
+      - uses: azure/setup-kubectl@v3
+        with:
+           version: 'latest'
+        id: install-kubectl
+      - name: Setup Cluster Connection
+        id: cluster_connection
+        run: |
+          echo "Test"
+          REGISTRY_AUTH=$(echo -n "${{ secrets.GITTEA_USER }}:${{ secrets.GITTEA_PASSWORD }}" | base64)
+          KUBECONFIG=./kubeconfig.yaml kubectl create namespace nextjsnamespace || true
+          cat << EOF | while read eval_command; do yq -i eval "$eval_command" ./helm/values.yaml; done
+            .rootNamespace = "nextjsnamespace"
+            .ingress.host = "${{ secrets.BOT_PAT }}"
+            .frontend.imageURL = "${{ steps.setup_env.outputs.frontend_image }}"
+            .ingress.certManager = true
+            .registryAuth.token = "$REGISTRY_AUTH"
+            .registryAuth.use = true
+          EOF
+          KUBECONFIG=./kubeconfig.yaml helm upgrade next-js-app ./helm/ --set rootNamespace="nextjsnamespace" --install
