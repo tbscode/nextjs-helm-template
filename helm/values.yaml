@@ -1,0 +1,13 @@
+rootNamespace: "default"
+registryAuth:
+  registry: "localhost:32000"
+  use: false
+  token: ""
+ingress:
+  use: true
+  certManager: false
+  host: "localhost"
+frontend:
+  imageURL: "localhost:32000/frontend:registry"
+  env:
+    HOSTNAME: "localhost"
