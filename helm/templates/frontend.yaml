@@ -1,0 +1,119 @@
+---
+{{- if .Values.registryAuth.use }}
+kind: Secret
+type: kubernetes.io/dockerconfigjson
+apiVersion: v1
+metadata:
+  name: dockerconfigjson-github-com
+  namespace: {{ .Values.rootNamespace }}
+stringData:
+  .dockerconfigjson: >
+    {{
+      (
+        dict "auths"
+        (
+          dict {{ .Values.registryAuth.registry }}
+          (
+            dict "auth" .Values.registryAuth.token
+          )
+        )
+      )
+      |
+      toJson
+    }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-container
+  namespace: {{ .Values.rootNamespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend-container
+  template:
+    metadata:
+      labels:
+        app: frontend-container
+    spec:
+      containers:
+        - name: frontend-container
+          image: {{ .Values.frontend.imageURL }}
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: frontend-secrets
+      {{- if .Values.registryAuth.use }}
+      imagePullSecrets:
+        - name: dockerconfigjson-github-com
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: {{ .Values.rootNamespace }}
+  labels:
+    app: frontend-container
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: frontend-container
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: frontend-secrets
+  namespace: {{ .Values.rootNamespace }}
+type: Opaque
+data:
+{{- range $key, $value := .Values.frontend.env }}
+  {{ $key }}: {{ $value | b64enc }}
+{{- end }}
+---
+{{- if .Values.ingress.use }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-ingress
+  namespace: {{ .Values.rootNamespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/server-snippets: |
+      location /ws/ {
+        proxy_http_version 1.1;
+        proxy_redirect off;
+        proxy_buffering off;
+      } 
+    {{- if .Values.ingress.certManager }}
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    {{- end }}
+    kubernetes.io/ingress.class: public
+spec:
+  {{- if .Values.ingress.certManager }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: frontend-ingress-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 3000
+{{- end }}
+---
