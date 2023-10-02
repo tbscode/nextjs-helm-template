@@ -1,0 +1,12 @@
+version: '3'
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ./prod.dockerfile
+    image: "$FRONTEND_IMAGE"
+    ports:
+      - "3000:3000"
+    environment:
+      ROOT_URL: "$ROOT_URL"
+      WEBSOCKET_PROTOCOL: 'ws://'

@@ -1,0 +1,15 @@
+version: '3'
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ./Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/frontend
+    environment:
+      ROOT_URL: 'http://localhost'
+      WEBSOCKET_PROTOCOL: 'ws://'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
