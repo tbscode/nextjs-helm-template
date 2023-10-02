@@ -7,4 +7,4 @@ RUN apk add curl
 
 RUN npm i --save-dev
 
-ENTRYPOINT ["sh", "./dev_entry.sh"]
+ENTRYPOINT ["npm", "run", "dev"]
